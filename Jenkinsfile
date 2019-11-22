@@ -1,6 +1,6 @@
 pipeline {
      parameters{
-        string(name:'GIT_REPO_APP',
+        string(name:'GIT_REPO_APP', 
                defaultValue:
                'https://github.com/losete/springboot-crud-demo.git')
         string(name:'APP_GIT_BRANCH',
@@ -18,7 +18,6 @@ pipeline {
                 git branch: "${params.APP_GIT_BRANCH}",
                     credentialsId: "${params.GIT_USER}",
                     url: "${params.GIT_REPO_APP}"
-                sh 'rm -r reports' 
                 sh 'mkdir reports' 
                 sh 'ls -la'
             }
@@ -54,8 +53,9 @@ pipeline {
             steps {
                 script {
                     try {
-                        timeout(time: 1, unit: 'MINUTES') {
-                            echo 'Bench'
+                        timeout(time: 10, unit: 'MINUTES') {
+                            sh 'mvn package  -Dmaven.test.failure.ignore=true '
+                            sh 'java -jar benchmarks/target/benchmarks.jar'
                         }
                     } catch (err) {
                         // This try catch prevents Jenkins from setting currentBuild to
@@ -69,8 +69,10 @@ pipeline {
         stage('Spring-boot:run') {
             steps {
                 echo 'Run'
-                sh 'ls -la'
-                //sh 'mvn spring-boot:run'
+                sh 'ls -la '
+                sh 'mvn package  -Dmaven.test.failure.ignore=true '
+                sh 'ls -la '
+                //sh 'java -jar benchmarks/target/benchmarks.jar'
             }
         }
     }
