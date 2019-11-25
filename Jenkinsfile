@@ -6,7 +6,12 @@ pipeline {
         string(name:'APP_GIT_BRANCH',
                defaultValue: "**")
         string(name:'GIT_USER',
-               defaultValue:"sebascm")   
+               defaultValue:"sebascm")
+        string(name:'REPORT_MAIL',
+               defaultValue:"sebastiancalvom@gmail.com")
+        choice(name: 'AUTOMERGE_BRANCH',
+                choices: ['Yes', 'No'],
+                description: 'Automatic merge into \'dev\' of the branch above in case the build is successful')   
     }
     agent { docker { image 'maven:3.6.0-jdk-11' } }
     options {
@@ -19,7 +24,6 @@ pipeline {
                     credentialsId: "${params.GIT_USER}",
                     url: "${params.GIT_REPO_APP}"
                 sh 'mkdir reports' 
-                sh 'ls -la'
             }
         }
         stage('DB-setup') {
@@ -55,30 +59,43 @@ pipeline {
                     try {
                         timeout(time: 10, unit: 'MINUTES') {
                             sh 'mvn package  -Dmaven.test.failure.ignore=true '
-                            sh 'java -jar benchmarks/target/benchmarks.jar'
+                            sh 'java -jar benchmarks/target/benchmarks.jar > reports/benchmarks.txt'
                         }
                     } catch (err) {
                         // This try catch prevents Jenkins from setting currentBuild to
                         // ABORTED in case of benchmark failure
                         writeFile(file: "reports/benchmark_report.txt",
-                                text: "Benchmarks too slow", encoding: "UTF-8")
+                                text: "Benchmarks are too slow", encoding: "UTF-8")
                     }
                 }
             }
         }
         stage('Spring-boot:run') {
             steps {
-                echo 'Run'
-                sh 'ls -la '
                 sh 'mvn package  -Dmaven.test.failure.ignore=true '
-                sh 'ls -la '
                 //sh 'java -jar benchmarks/target/benchmarks.jar'
             }
         }
     }
     post {
+        success{
+            script{
+                if (params.AUTOMERGE_BRANCH == 'Yes'){
+                    withCredentials([usernamePassword(credentialsId: 'SebasGH', passwordVariable: 'pass', usernameVariable: 'user')]) {
+                        sh "git config --global user.email 'sebastiancalvom@gmail.com'"
+                        sh "git config --global user.name $user" //may be are multiple sebas in a development team
+                        sh "git remote update"
+                        sh "git fetch --all"
+                        sh "git pull --all"
+                        sh "git checkout dev"
+                        sh "git merge origin/master"
+                        sh "git merge ${BRANCH_NAME}"
+                        sh "git push https://$user:$pass@github.com/losete/springboot-crud-demo"
+                    }
+                }
+            }
+        }
         always {
-            sh 'ls -la'
             sh 'tar -cvzf reports.tar.gz reports/'
             archiveArtifacts 'reports.tar.gz'
             emailext (attachmentsPattern: 'reports.tar.gz',
@@ -88,9 +105,6 @@ pipeline {
                 replyTo: '',
                 to: "${params.REPORT_MAIL}"
             )
-        }
-        failure {
-            echo 'failure'
         }
         cleanup{
             cleanWs()
