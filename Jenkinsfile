@@ -12,17 +12,17 @@ pipeline {
         choice(name: 'AUTOMERGE_BRANCH',
                 choices: ['Yes', 'No'],
                 description: 'Automatic merge into \'dev\' of the branch above in case the build is successful')   
+        string(name:'MYSQL_DB_PASSWORD',
+               defaultValue:"rootpass")
+        string(name:'MYSQL_DB_NAME',
+               defaultValue:"springbootdb") 
     }
-    environment{
-        MYSQL_DB_PASSWORD="rootpass"
-    }
-    agent any
+    agent { docker { image 'chusca/docker-and-maven-3.6.0-jdk-11:latest' } }
     options {
         copyArtifactPermission('**')
     }
     stages {
         stage('Setup') {
-            agent { docker { image 'maven:3.6.0-jdk-11' } }
             steps {
                 git branch: "${params.APP_GIT_BRANCH}",
                     credentialsId: "${params.GIT_USER}",
@@ -30,18 +30,7 @@ pipeline {
                 sh 'mkdir reports' 
             }
         }
-        stage('DB-setup') {
-            agent { docker { image 'sebascm/docker-compose:latest' } }
-            steps {
-                echo 'DB-setup'
-                sh 'cd dist/docker'
-                sh 'docker-compose up -d'
-                sh "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(docker-compose ps -q mysql-old)"
-                sh 'cd ../..'
-            }
-        }
         stage('Validate') {
-            agent { docker { image 'maven:3.6.0-jdk-11' } }
             steps {
                 sh 'mvn validate'
                 sh 'ls -la target'
@@ -49,26 +38,37 @@ pipeline {
             }
         }
         stage('Compile') {
-            agent { docker { image 'maven:3.6.0-jdk-11' } }
             steps {
                 sh 'mvn compile  > reports/compile.txt'
             }
         }
         stage('Test') {
-            agent { docker { image 'maven:3.6.0-jdk-11' } }
-            steps {
-                sh 'export MYSQL_DB_PASSWORD=${env.MYSQL_DB_PASSWORD}'
-                sh 'mvn test -Dmaven.test.failure.ignore=true  > reports/tests.txt'
+            steps{
+                git branch: "${params.APP_GIT_BRANCH}", credentialsId: "${params.GIT_USER}", url: "${params.GIT_REPO_APP}"
+                script {
+                    try {
+                        sh "docker run --name mariaDB-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
+                        sh 'mkdir -p web/src/test/resources/'
+                        sh 'echo "spring.datasource.url=jdbc:mysql://172.17.0.8:3306/${MYSQL_DB_NAME}" > web/src/test/resources/application.properties'
+                        sh 'echo "spring.datasource.username=root" >> web/src/test/resources/application.properties'
+                        sh 'echo "spring.datasource.password=${MYSQL_DB_PASSWORD}" >> web/src/test/resources/application.properties'
+                        sh 'echo "spring.jpa.hibernate.ddl-auto=update" >> web/src/test/resources/application.properties'
+                        sh 'mvn test'
+                    } catch (Exception e) {
+                        sh 'Handle the exception!'
+                    } finally {
+                        sh "docker stop mariaDB-${BUILD_ID}"
+                        sh "docker rm mariaDB-${BUILD_ID}"
+                    }
+                }
             }
         }
         stage('Spotbugs') {
-            agent { docker { image 'maven:3.6.0-jdk-11' } }
             steps {
                 sh 'mvn verify -Dmaven.test.failure.ignore=true > reports/bugs.txt'
             }
         }
         stage('Benchmark') {
-            agent { docker { image 'maven:3.6.0-jdk-11' } }
             steps {
                 script {
                     try {
@@ -86,17 +86,18 @@ pipeline {
             }
         }
         stage('Spring-boot:run') {
-            agent{ docker { image 'maven:3.6.0-jdk-11' } }
             steps {
-                sh 'mvn package  -Dmaven.test.failure.ignore=true '
-                //sh 'java -jar benchmarks/target/benchmarks.jar'
-            }
-        }
-        stage('Clean DB container'){
-            agent { docker { image 'sebascm/docker-compose:latest' } }
-            steps {
-                sh 'cd dist/docker'
-                sh 'docker-compose down'
+                script {
+                    try {
+                        sh "docker run --name mariaDB-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
+                        sh 'mvn spring-boot:run'
+                    } catch (Exception e) {
+                        sh 'Handle the exception!'
+                    } finally {
+                        sh "docker stop mariaDB-${BUILD_ID}"
+                        sh "docker rm mariaDB-${BUILD_ID}"
+                    }
+                }
             }
         }
     }
