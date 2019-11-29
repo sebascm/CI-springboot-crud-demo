@@ -63,16 +63,17 @@ pipeline {
         stage ("Launch testing pipeline"){
             steps {
                 script{
-                    if ("${params.APP_GIT_BRANCH}" == 'master')){
-                        sh 'tar -cvzf project.tar.gz project'
-                        archiveArtifacts artifacts: 'project.tar.gz', fingerprint: true
+                    if ("${params.APP_GIT_BRANCH}" == 'master'){
+                        sh 'tar -cvzf reports.tar.gz reports'
+                        archiveArtifacts artifacts: 'reports.tar.gz', fingerprint: true
 
                         build job: 'spring-boot-crud-demo-Testing',
                             propagate: true,
                             wait: true,
                             parameters: [[$class: 'StringParameterValue',
                                         name: 'APP_GIT_BRANCH',
-                                        value: "${APP_GIT_BRANCH}"]
+                                        value: "${APP_GIT_BRANCH}"]]
+                    }
                 }
             }
         }
@@ -97,7 +98,7 @@ pipeline {
         }
         always {
             sh 'tar -cvzf reports.tar.gz reports/'
-            archiveArtifacts artifacts'reports.tar.gz', fingerprint: true
+            archiveArtifacts artifacts: 'reports.tar.gz', fingerprint: true
             emailext (attachmentsPattern: 'reports.tar.gz',
                 body: "Workflow result on ${currentBuild.currentResult}, check attached artifacts for further information",
                 subject: "Jenkins Build ${currentBuild.currentResult} on Job ${env.JOB_NAME}",
