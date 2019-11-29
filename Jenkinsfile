@@ -47,7 +47,7 @@ pipeline {
                 git branch: "${params.APP_GIT_BRANCH}", credentialsId: "${params.GIT_USER}", url: "${params.GIT_REPO_APP}"
                 script {
                     try {
-                        sh "docker run --name mariaDB-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
+                        sh "docker run --name mysql-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
                         sh 'mkdir -p web/src/test/resources/'
                         sh 'echo "spring.datasource.url=jdbc:mysql://172.17.0.8:3306/${MYSQL_DB_NAME}" > web/src/test/resources/application.properties'
                         sh 'echo "spring.datasource.username=root" >> web/src/test/resources/application.properties'
@@ -57,8 +57,8 @@ pipeline {
                     } catch (Exception e) {
                         sh 'Handle the exception!'
                     } finally {
-                        sh "docker stop mariaDB-${BUILD_ID}"
-                        sh "docker rm mariaDB-${BUILD_ID}"
+                        sh "docker stop mysql-${BUILD_ID}"
+                        sh "docker rm mysql-${BUILD_ID}"
                     }
                 }
             }
@@ -89,13 +89,13 @@ pipeline {
             steps {
                 script {
                     try {
-                        sh "docker run --name mariaDB-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
+                        sh "docker run --name mysql-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
                         sh 'mvn spring-boot:run'
                     } catch (Exception e) {
                         sh 'Handle the exception!'
                     } finally {
-                        sh "docker stop mariaDB-${BUILD_ID}"
-                        sh "docker rm mariaDB-${BUILD_ID}"
+                        sh "docker stop mysql-${BUILD_ID}"
+                        sh "docker rm myqsl-${BUILD_ID}"
                     }
                 }
             }
