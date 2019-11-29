@@ -4,7 +4,7 @@ pipeline {
                defaultValue:
                'https://github.com/losete/springboot-crud-demo.git')
         string(name:'APP_GIT_BRANCH',
-               defaultValue: "**")
+               defaultValue: "master")
         string(name:'GIT_USER',
                defaultValue:"sebascm")
         string(name:'REPORT_MAIL',

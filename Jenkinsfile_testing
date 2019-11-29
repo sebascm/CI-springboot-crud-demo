@@ -1,17 +1,9 @@
 pipeline {
      parameters{
-        string(name:'GIT_REPO_APP', 
-               defaultValue:
-               'https://github.com/losete/springboot-crud-demo.git')
         string(name:'APP_GIT_BRANCH',
                defaultValue: "master")
-        string(name:'GIT_USER',
-               defaultValue:"sebascm")
         string(name:'REPORT_MAIL',
                defaultValue:"sebastiancalvom@gmail.com")
-        choice(name: 'AUTOMERGE_BRANCH',
-                choices: ['Yes', 'No'],
-                description: 'Automatic merge into \'dev\' of the branch above in case the build is successful')   
         string(name:'MYSQL_DB_PASSWORD',
                defaultValue:"rootpass")
         string(name:'MYSQL_DB_NAME',
