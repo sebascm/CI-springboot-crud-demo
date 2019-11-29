@@ -14,48 +14,55 @@ pipeline {
         stage('Setup'){
             steps{
                 step([ $class: 'CopyArtifact',
-                    filter: 'project.tar.gz',
+                    filter: 'artifacts.tar.gz',
                     projectName: "spring-boot-crud-demo-Dev",
                     fingerprintArtifacts: true,
                     selector: upstream(fallbackToLastSuccessful: true) 
                 ])
-                sh 'tar -xvzf project.tar.gz'
-                sh 'mkdir reports'
+                sh 'tar -xvzf artifacts.tar.gz'
+                sh 'ls -la'
+                sh 'mkdir artifacts/reports'
             }
         }
-        stage('Spotbugs') {
+        stage('Verify') {
             steps {
-                sh 'mvn verify -Dmaven.test.failure.ignore=true > reports/bugs.txt'
+                dir('artifacts'){
+                    sh 'mvn verify -Dmaven.test.failure.ignore=true -pl web > reports/verify.txt'
+                }
             }
         }
         stage('Benchmark') {
             steps {
-                script {
-                    try {
-                        timeout(time: 10, unit: 'MINUTES') {
-                            sh 'mvn package  -Dmaven.test.failure.ignore=true '
-                            sh 'java -jar benchmarks/target/benchmarks.jar > reports/benchmarks.txt'
+                dir('artifacts'){
+                    script {
+                        try {
+                            timeout(time: 10, unit: 'MINUTES') {
+                                sh 'mvn package  -Dmaven.test.failure.ignore=true '
+                                sh 'java -jar benchmarks/target/benchmarks.jar > reports/benchmarks.txt'
+                            }
+                        } catch (err) {
+                            // This try catch prevents Jenkins from setting currentBuild to
+                            // ABORTED in case of benchmark failure
+                            writeFile(file: "reports/benchmark_report.txt",
+                                    text: "Benchmarks are too slow", encoding: "UTF-8")
                         }
-                    } catch (err) {
-                        // This try catch prevents Jenkins from setting currentBuild to
-                        // ABORTED in case of benchmark failure
-                        writeFile(file: "reports/benchmark_report.txt",
-                                text: "Benchmarks are too slow", encoding: "UTF-8")
                     }
                 }
             }
         }
         stage('Spring-boot:run') {
             steps {
-                script {
-                    try {
-                        sh "docker run --name mysql-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
-                        sh 'mvn spring-boot:run'
-                    } catch (Exception e) {
-                        sh 'Handle the exception!'
-                    } finally {
-                        sh "docker stop mysql-${BUILD_ID}"
-                        sh "docker rm myqsl-${BUILD_ID}"
+                dir('artifacts'){
+                    script {
+                        try {
+                            sh "docker run --name mysql-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
+                            //sh 'mvn spring-boot:run'
+                        } catch (Exception e) {
+                            sh 'Handle the exception!'
+                        } finally {
+                            sh "docker stop mysql-${BUILD_ID}"
+                            //sh "docker rm myqsl-${BUILD_ID}"
+                        }
                     }
                 }
             }
@@ -63,7 +70,7 @@ pipeline {
     }
     post {
         always {
-            sh 'tar -cvzf reports.tar.gz reports/'
+            sh 'tar -cvzf reports.tar.gz artifacts/reports/'
             archiveArtifacts 'reports.tar.gz'
             emailext (attachmentsPattern: 'reports.tar.gz',
                 body: "Workflow result on ${currentBuild.currentResult}, check attached artifacts for further information",
