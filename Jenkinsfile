@@ -18,9 +18,6 @@ pipeline {
                defaultValue:"springbootdb") 
     }
     agent { docker { image 'chusca/docker-and-maven-3.6.0-jdk-11:latest' } }
-    options {
-        copyArtifactPermission('**')
-    }
     stages {
         stage('Setup') {
             steps {
@@ -63,40 +60,19 @@ pipeline {
                 }
             }
         }
-        stage('Spotbugs') {
+        stage ("Launch testing pipeline"){
             steps {
-                sh 'mvn verify -Dmaven.test.failure.ignore=true > reports/bugs.txt'
-            }
-        }
-        stage('Benchmark') {
-            steps {
-                script {
-                    try {
-                        timeout(time: 10, unit: 'MINUTES') {
-                            sh 'mvn package  -Dmaven.test.failure.ignore=true '
-                            sh 'java -jar benchmarks/target/benchmarks.jar > reports/benchmarks.txt'
-                        }
-                    } catch (err) {
-                        // This try catch prevents Jenkins from setting currentBuild to
-                        // ABORTED in case of benchmark failure
-                        writeFile(file: "reports/benchmark_report.txt",
-                                text: "Benchmarks are too slow", encoding: "UTF-8")
-                    }
-                }
-            }
-        }
-        stage('Spring-boot:run') {
-            steps {
-                script {
-                    try {
-                        sh "docker run --name mysql-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
-                        sh 'mvn spring-boot:run'
-                    } catch (Exception e) {
-                        sh 'Handle the exception!'
-                    } finally {
-                        sh "docker stop mysql-${BUILD_ID}"
-                        sh "docker rm myqsl-${BUILD_ID}"
-                    }
+                script{
+                    if ("${params.APP_GIT_BRANCH}" == 'master')){
+                        sh 'tar -cvzf project.tar.gz project'
+                        archiveArtifacts artifacts: 'project.tar.gz', fingerprint: true
+
+                        build job: 'spring-boot-crud-demo-Testing',
+                            propagate: true,
+                            wait: true,
+                            parameters: [[$class: 'StringParameterValue',
+                                        name: 'APP_GIT_BRANCH',
+                                        value: "${APP_GIT_BRANCH}"]
                 }
             }
         }
@@ -121,7 +97,7 @@ pipeline {
         }
         always {
             sh 'tar -cvzf reports.tar.gz reports/'
-            archiveArtifacts 'reports.tar.gz'
+            archiveArtifacts artifacts'reports.tar.gz', fingerprint: true
             emailext (attachmentsPattern: 'reports.tar.gz',
                 body: "Workflow result on ${currentBuild.currentResult}, check attached artifacts for further information",
                 subject: "Jenkins Build ${currentBuild.currentResult} on Job ${env.JOB_NAME}",
@@ -129,6 +105,9 @@ pipeline {
                 replyTo: '',
                 to: "${params.REPORT_MAIL}"
             )
+        }
+        failure {
+            archiveArtifacts artifacts: 'reports.tar.gz', fingerprint: true
         }
         cleanup{
             cleanWs()

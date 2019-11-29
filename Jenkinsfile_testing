@@ -4,27 +4,26 @@ pipeline {
                defaultValue:
                'https://github.com/losete/springboot-crud-demo.git')
         string(name:'APP_GIT_BRANCH',
-               defaultValue: "**")
+               defaultValue: "master")
         string(name:'GIT_USER',
                defaultValue:"sebascm")
         string(name:'REPORT_MAIL',
                defaultValue:"sebastiancalvom@gmail.com")
-        string(name: 'PROJECT_NAME',
-               defaultValue: "CI-springboot-crud-demo")
+        choice(name: 'AUTOMERGE_BRANCH',
+                choices: ['Yes', 'No'],
+                description: 'Automatic merge into \'dev\' of the branch above in case the build is successful')   
+        string(name:'MYSQL_DB_PASSWORD',
+               defaultValue:"rootpass")
+        string(name:'MYSQL_DB_NAME',
+               defaultValue:"springbootdb") 
     }
-    environment{
-        MYSQL_DB_PASSWORD="rootpass"
-    }
-    agent any
-    options {
-        copyArtifactPermission('**')
-    }
+    agent { docker { image 'chusca/docker-and-maven-3.6.0-jdk-11:latest' } }
     stages {
-        stage('Setup') {
-            steps {
+        stage('Setup'){
+            steps{
                 step([ $class: 'CopyArtifact',
                     filter: 'project.tar.gz',
-                    projectName: "${params.PROJECT_NAME}",
+                    projectName: "spring-boot-crud-demo-Dev",
                     fingerprintArtifacts: true,
                     selector: upstream(fallbackToLastSuccessful: true) 
                 ])
@@ -32,24 +31,12 @@ pipeline {
                 sh 'mkdir reports'
             }
         }
-        stage('DB-setup') {
-            agent { docker { image 'sebascm/docker-compose:latest' } }
-            steps {
-                echo 'DB-setup'
-                sh 'cd dist/docker'
-                sh 'docker-compose up -d'
-                sh "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(docker-compose ps -q mysql-old)"
-                sh 'cd ../..'
-            }
-        }
         stage('Spotbugs') {
-            agent { docker { image 'maven:3.6.0-jdk-11' } }
             steps {
                 sh 'mvn verify -Dmaven.test.failure.ignore=true > reports/bugs.txt'
             }
         }
         stage('Benchmark') {
-            agent { docker { image 'maven:3.6.0-jdk-11' } }
             steps {
                 script {
                     try {
@@ -67,17 +54,18 @@ pipeline {
             }
         }
         stage('Spring-boot:run') {
-            agent{ docker { image 'maven:3.6.0-jdk-11' } }
             steps {
-                sh 'mvn package  -Dmaven.test.failure.ignore=true '
-                //sh 'java -jar benchmarks/target/benchmarks.jar'
-            }
-        }
-        stage('Clean DB container'){
-            agent { docker { image 'sebascm/docker-compose:latest' } }
-            steps {
-                sh 'cd dist/docker'
-                sh 'docker-compose down'
+                script {
+                    try {
+                        sh "docker run --name mysql-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
+                        sh 'mvn spring-boot:run'
+                    } catch (Exception e) {
+                        sh 'Handle the exception!'
+                    } finally {
+                        sh "docker stop mysql-${BUILD_ID}"
+                        sh "docker rm myqsl-${BUILD_ID}"
+                    }
+                }
             }
         }
     }
@@ -93,9 +81,11 @@ pipeline {
                 to: "${params.REPORT_MAIL}"
             )
         }
+        failure {
+            archiveArtifacts artifacts: 'reports.tar.gz', fingerprint: true
+        }
         cleanup{
             cleanWs()
         }
     }
 }
-
