@@ -1,0 +1,90 @@
+pipeline {
+     parameters{
+        string(name:'APP_GIT_BRANCH',
+               defaultValue: "master")
+        string(name:'REPORT_MAIL',
+               defaultValue:"sebastiancalvom@gmail.com")
+        string(name:'MYSQL_DB_PASSWORD',
+               defaultValue:"rootpass")
+        string(name:'MYSQL_DB_NAME',
+               defaultValue:"springbootdb") 
+    }
+    agent { docker { image 'chusca/docker-and-maven-3.6.0-jdk-11:latest' } }
+    stages {
+        stage('Setup'){
+            steps{
+                step([ $class: 'CopyArtifact',
+                    filter: 'artifacts.tar.gz',
+                    projectName: "spring-boot-crud-demo-Dev",
+                    fingerprintArtifacts: true,
+                    selector: upstream(fallbackToLastSuccessful: true) 
+                ])
+                sh 'tar -xvzf artifacts.tar.gz'
+                sh 'ls -la'
+                sh 'mkdir artifacts/reports'
+            }
+        }
+        stage('Verify') {
+            steps {
+                dir('artifacts'){
+                    sh 'mvn verify -Dmaven.test.failure.ignore=true -pl web > reports/verify.txt'
+                }
+            }
+        }
+        stage('Benchmark') {
+            steps {
+                dir('artifacts'){
+                    script {
+                        try {
+                            timeout(time: 10, unit: 'MINUTES') {
+                                sh 'mvn package  -Dmaven.test.failure.ignore=true '
+                                sh 'java -jar benchmarks/target/benchmarks.jar > reports/benchmarks.txt'
+                            }
+                        } catch (err) {
+                            // This try catch prevents Jenkins from setting currentBuild to
+                            // ABORTED in case of benchmark failure
+                            writeFile(file: "reports/benchmark_report.txt",
+                                    text: "Benchmarks are too slow", encoding: "UTF-8")
+                        }
+                    }
+                }
+            }
+        }
+        stage('Spring-boot:run') {
+            steps {
+                dir('artifacts'){
+                    script {
+                        try {
+                            sh "docker run --name mysql-${BUILD_ID}  -e MYSQL_ROOT_PASSWORD=${MYSQL_DB_PASSWORD} -e MYSQL_DATABASE=${MYSQL_DB_NAME} -d mysql"
+                            //sh 'mvn spring-boot:run'
+                        } catch (Exception e) {
+                            sh 'Handle the exception!'
+                        } finally {
+                            sh "docker stop mysql-${BUILD_ID}"
+                            //sh "docker rm myqsl-${BUILD_ID}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            sh 'tar -cvzf reports.tar.gz artifacts/reports/'
+            archiveArtifacts 'reports.tar.gz'
+            emailext (attachmentsPattern: 'reports.tar.gz',
+                body: "Workflow result on ${currentBuild.currentResult}, check attached artifacts for further information",
+                subject: "Jenkins Build ${currentBuild.currentResult} on Job ${env.JOB_NAME}",
+                from: 'notificaciones.torusnewies@gmail.com',
+                replyTo: '',
+                to: "${params.REPORT_MAIL}"
+            )
+        }
+        failure {
+            archiveArtifacts artifacts: 'reports.tar.gz', fingerprint: true
+        }
+        cleanup{
+            cleanWs()
+        }
+    }
+}
